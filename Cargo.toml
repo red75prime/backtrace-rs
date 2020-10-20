@@ -20,31 +20,6 @@ exclude = ['crates/without_debuginfo', 'crates/macos_frames_test', 'crates/line-
 
 [dependencies]
 cfg-if = "1.0"
-rustc-demangle = "0.1.4"
-backtrace-sys = { path = "crates/backtrace-sys", version = "0.1.35", optional = true, default_features = false }
-libc = { version = "0.2.45", default-features = false }
-
-# Optionally enable the ability to serialize a `Backtrace`, controlled through
-# the `serialize-*` features below.
-serde = { version = "1.0", optional = true, features = ['derive'] }
-rustc-serialize = { version = "0.3", optional = true }
-
-# Optionally demangle C++ frames' symbols in backtraces.
-cpp_demangle = { default-features = false, version = "0.3.0", optional = true }
-
-
-# Optional dependencies enabled through the `gimli-symbolize` feature, do not
-# use these features directly.
-addr2line = { version = "0.13.0", optional = true, default-features = false }
-miniz_oxide = { version = "0.4.0", optional = true, default-features = false }
-[dependencies.object]
-version = "0.21"
-optional = true
-default-features = false
-features = ['read_core', 'elf', 'macho', 'pe', 'unaligned']
-
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.3", optional = true }
 
 [dev-dependencies]
 dylib-dep = { path = "crates/dylib-dep" }
@@ -56,6 +31,8 @@ default = ["std", "gimli-symbolize"]
 
 # Include std support. This enables types like `Backtrace`.
 std = []
+
+cpp_demangle = []
 
 #=======================================
 # Methods of resolving symbols
@@ -69,15 +46,15 @@ std = []
 # be affected by feature selection here. Also note that it's highly unlikely you
 # want to configure this. If you're having trouble getting backtraces it's
 # likely best to open an issue.
-gimli-symbolize = ["addr2line", "miniz_oxide", "object"]
-libbacktrace = ["backtrace-sys/backtrace-sys"]
+gimli-symbolize = []
+libbacktrace = []
 
 #=======================================
 # Methods of serialization
 #
 # Various features used for enabling rustc-serialize or syntex codegen.
-serialize-rustc = ["rustc-serialize"]
-serialize-serde = ["serde"]
+serialize-rustc = []
+serialize-serde = []
 
 #=======================================
 # Deprecated/internal features
@@ -90,18 +67,7 @@ kernel32 = []
 unix-backtrace = []
 libunwind = []
 dbghelp = []
-verify-winapi = [
-  'winapi/dbghelp',
-  'winapi/handleapi',
-  'winapi/libloaderapi',
-  'winapi/memoryapi',
-  'winapi/minwindef',
-  'winapi/processthreadsapi',
-  'winapi/synchapi',
-  'winapi/tlhelp32',
-  'winapi/winbase',
-  'winapi/winnt',
-]
+verify-winapi = []
 
 [[example]]
 name = "backtrace"

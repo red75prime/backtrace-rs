@@ -10,7 +10,27 @@ cfg_if::cfg_if! {
 use super::backtrace::Frame;
 use super::types::BytesOrWideString;
 use core::ffi::c_void;
-use rustc_demangle::{try_demangle, Demangle};
+
+// Disable backtrace
+//use rustc_demangle::{try_demangle, Demangle};
+#[derive(Debug)]
+struct Demangle<'a>(&'a str);
+
+impl<'a> Demangle<'a> {
+    fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+impl fmt::Display for Demangle<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+fn try_demangle(s: &str) -> Result<Demangle<'_>, ()> {
+    Ok(Demangle(s))
+}
 
 /// Resolve an address to a symbol, passing the symbol to the specified
 /// closure.
@@ -277,37 +297,19 @@ impl fmt::Debug for Symbol {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "cpp_demangle")] {
-        // Maybe a parsed C++ symbol, if parsing the mangled symbol as Rust
-        // failed.
-        struct OptionCppSymbol<'a>(Option<::cpp_demangle::BorrowedSymbol<'a>>);
+use core::marker::PhantomData;
 
-        impl<'a> OptionCppSymbol<'a> {
-            fn parse(input: &'a [u8]) -> OptionCppSymbol<'a> {
-                OptionCppSymbol(::cpp_demangle::BorrowedSymbol::new(input).ok())
-            }
+// Make sure to keep this zero-sized, so that the `cpp_demangle` feature
+// has no cost when disabled.
+struct OptionCppSymbol<'a>(PhantomData<&'a ()>);
 
-            fn none() -> OptionCppSymbol<'a> {
-                OptionCppSymbol(None)
-            }
-        }
-    } else {
-        use core::marker::PhantomData;
+impl<'a> OptionCppSymbol<'a> {
+    fn parse(_: &'a [u8]) -> OptionCppSymbol<'a> {
+        OptionCppSymbol(PhantomData)
+    }
 
-        // Make sure to keep this zero-sized, so that the `cpp_demangle` feature
-        // has no cost when disabled.
-        struct OptionCppSymbol<'a>(PhantomData<&'a ()>);
-
-        impl<'a> OptionCppSymbol<'a> {
-            fn parse(_: &'a [u8]) -> OptionCppSymbol<'a> {
-                OptionCppSymbol(PhantomData)
-            }
-
-            fn none() -> OptionCppSymbol<'a> {
-                OptionCppSymbol(PhantomData)
-            }
-        }
+    fn none() -> OptionCppSymbol<'a> {
+        OptionCppSymbol(PhantomData)
     }
 }
 
@@ -380,64 +382,22 @@ fn format_symbol_name(
     Ok(())
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "cpp_demangle")] {
-        impl<'a> fmt::Display for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                if let Some(ref s) = self.demangled {
-                    s.fmt(f)
-                } else if let Some(ref cpp) = self.cpp_demangled.0 {
-                    cpp.fmt(f)
-                } else {
-                    format_symbol_name(fmt::Display::fmt, self.bytes, f)
-                }
-            }
-        }
-    } else {
-        impl<'a> fmt::Display for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                if let Some(ref s) = self.demangled {
-                    s.fmt(f)
-                } else {
-                    format_symbol_name(fmt::Display::fmt, self.bytes, f)
-                }
-            }
+impl<'a> fmt::Display for SymbolName<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref s) = self.demangled {
+            s.fmt(f)
+        } else {
+            format_symbol_name(fmt::Display::fmt, self.bytes, f)
         }
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "std", feature = "cpp_demangle"))] {
-        impl<'a> fmt::Debug for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                use std::fmt::Write;
-
-                if let Some(ref s) = self.demangled {
-                    return s.fmt(f)
-                }
-
-                // This may to print if the demangled symbol isn't actually
-                // valid, so handle the error here gracefully by not propagating
-                // it outwards.
-                if let Some(ref cpp) = self.cpp_demangled.0 {
-                    let mut s = String::new();
-                    if write!(s, "{}", cpp).is_ok() {
-                        return s.fmt(f)
-                    }
-                }
-
-                format_symbol_name(fmt::Debug::fmt, self.bytes, f)
-            }
-        }
-    } else {
-        impl<'a> fmt::Debug for SymbolName<'a> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                if let Some(ref s) = self.demangled {
-                    s.fmt(f)
-                } else {
-                    format_symbol_name(fmt::Debug::fmt, self.bytes, f)
-                }
-            }
+impl<'a> fmt::Debug for SymbolName<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref s) = self.demangled {
+            s.fmt(f)
+        } else {
+            format_symbol_name(fmt::Debug::fmt, self.bytes, f)
         }
     }
 }
@@ -463,44 +423,9 @@ pub fn clear_symbol_cache() {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(miri)] {
-        mod miri;
-        use self::miri::resolve as resolve_imp;
-        use self::miri::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
-    } else if #[cfg(all(windows, target_env = "msvc", not(target_vendor = "uwp")))] {
-        mod dbghelp;
-        use self::dbghelp::resolve as resolve_imp;
-        use self::dbghelp::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
-    } else if #[cfg(all(
-        feature = "libbacktrace",
-        any(unix, all(windows, not(target_vendor = "uwp"), target_env = "gnu")),
-        not(target_os = "fuchsia"),
-        not(target_os = "emscripten"),
-        not(target_env = "uclibc"),
-        not(target_env = "libnx"),
-    ))] {
-        mod libbacktrace;
-        use self::libbacktrace::resolve as resolve_imp;
-        use self::libbacktrace::Symbol as SymbolImp;
-        unsafe fn clear_symbol_cache_imp() {}
-    } else if #[cfg(all(
-        feature = "gimli-symbolize",
-        any(unix, windows),
-        not(target_vendor = "uwp"),
-        not(target_os = "emscripten"),
-    ))] {
-        mod gimli;
-        use self::gimli::resolve as resolve_imp;
-        use self::gimli::Symbol as SymbolImp;
-        use self::gimli::clear_symbol_cache as clear_symbol_cache_imp;
-    } else {
-        mod noop;
-        use self::noop::resolve as resolve_imp;
-        use self::noop::Symbol as SymbolImp;
-        #[allow(unused)]
-        unsafe fn clear_symbol_cache_imp() {}
-    }
-}
+// Disable backtrace
+mod noop;
+use self::noop::resolve as resolve_imp;
+use self::noop::Symbol as SymbolImp;
+#[allow(unused)]
+unsafe fn clear_symbol_cache_imp() {}

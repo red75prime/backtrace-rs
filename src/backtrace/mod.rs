@@ -125,37 +125,8 @@ impl fmt::Debug for Frame {
     }
 }
 
-cfg_if::cfg_if! {
-    // This needs to come first, to ensure that
-    // Miri takes priority over the host platform
-    if #[cfg(miri)] {
-        pub(crate) mod miri;
-        use self::miri::trace as trace_imp;
-        pub(crate) use self::miri::Frame as FrameImp;
-    } else if #[cfg(
-        any(
-            all(
-                unix,
-                not(target_os = "emscripten"),
-                not(all(target_os = "ios", target_arch = "arm")),
-            ),
-            all(
-                target_env = "sgx",
-                target_vendor = "fortanix",
-            ),
-        )
-    )] {
-        mod libunwind;
-        use self::libunwind::trace as trace_imp;
-        pub(crate) use self::libunwind::Frame as FrameImp;
-    } else if #[cfg(all(windows, not(target_vendor = "uwp")))] {
-        mod dbghelp;
-        use self::dbghelp::trace as trace_imp;
-        pub(crate) use self::dbghelp::Frame as FrameImp;
-        pub(crate) use self::dbghelp::StackFrame;
-    } else {
-        mod noop;
-        use self::noop::trace as trace_imp;
-        pub(crate) use self::noop::Frame as FrameImp;
-    }
-}
+// Disable backtrace
+
+mod noop;
+use self::noop::trace as trace_imp;
+pub(crate) use self::noop::Frame as FrameImp;
